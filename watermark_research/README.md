@@ -1,5 +1,14 @@
 
 # Watermark Research
+
+### Setup
+```
+conda create -n audio-watermark python=3.12
+conda activate audio-watermark
+pip install -r requirements.txt
+```
+
+### Testing
 ```
 cd watermark_research/src
 python watermark_testing.py
