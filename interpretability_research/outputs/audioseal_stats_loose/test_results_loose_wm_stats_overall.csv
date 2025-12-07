@@ -1,0 +1,2 @@
+bitwise/clean|bitwise/distorted|bitwise/no_watermark_clean|bitwise/no_watermark_distorted|hard/clean|hard/distorted|hard/no_watermark_clean|hard/no_watermark_distorted|sisnr_wm|sisnr_attack|bitwise_drop|hard_drop|bitwise_fp_clean|bitwise_fp_distorted|hard_fp_clean|hard_fp_distorted|num_chunks
+0.9956743566992015|0.9063123890860693|0.5003951308784383|0.5004505878438332|0.945430346051464|0.7076308784383318|0.00011091393078970719|0.0|23.03279230122875|21.63499219561337|0.08936196761313221|0.2377994676131322|0.5003951308784383|0.5004505878438332|0.00011091393078970719|0.0|9016.0
