@@ -15,6 +15,11 @@ This script will:
   1) print a summary table (mean score per wm/mask)
   2) plot a heatmap: mask (row) x wm (col), value = mean score
   3) plot per-watermark bar chart of mask vs mean score
+
+Output folder (default):
+  <csv_dir>/snac_layer_ablation_plots_<DATASET>
+where <DATASET> is inferred from csv filename, e.g.
+  snac_layer_ablation_DAPS.csv -> "DAPS"
 """
 
 import os
@@ -130,16 +135,25 @@ def main():
         "--out_dir",
         type=str,
         default=None,
-        help="Directory to save plots (default: same dir as CSV + '/snac_layer_ablation_plots')"
+        help="Directory to save plots "
+             "(default: same dir as CSV + '/snac_layer_ablation_plots_<dataset>')"
     )
     args = parser.parse_args()
 
     csv_abs = os.path.abspath(args.csv)
     df = load_results(csv_abs)
 
+    # === 根據 CSV 檔名推 dataset 名稱 ===
+    base_dir = os.path.dirname(csv_abs)
+    csv_name = os.path.splitext(os.path.basename(csv_abs))[0]  # e.g. snac_layer_ablation_AIR
+
+    dataset_name = csv_name
+    prefix = "snac_layer_ablation_"
+    if csv_name.startswith(prefix):
+        dataset_name = csv_name[len(prefix):]  # e.g. AIR, Clotho, DAPS, ...
+
     if args.out_dir is None:
-        base_dir = os.path.dirname(csv_abs)
-        out_dir = os.path.join(base_dir, "snac_layer_ablation_plots")
+        out_dir = os.path.join(base_dir, f"snac_layer_ablation_plots_{dataset_name}")
     else:
         out_dir = os.path.abspath(args.out_dir)
 
@@ -149,6 +163,8 @@ def main():
     print("[INFO] rows:", len(df))
     print("[INFO] watermarks:", df["wm"].unique())
     print("[INFO] masks:", sorted(df["mask"].unique()))
+    print("[INFO] dataset name inferred as:", dataset_name)
+    print("[INFO] plots will be saved to:", out_dir)
 
     # 小 summary
     print("\n[SUMMARY] mean score by wm/mask:")
@@ -159,6 +175,7 @@ def main():
 
     # 每個 WM 畫一張 bar chart
     plot_per_wm_bars(df, out_dir)
+    pront("Done")
 
 
 if __name__ == "__main__":
