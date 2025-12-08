@@ -1,0 +1,6 @@
+librosa==0.11.0
+numpy==2.3.5
+pesq==0.0.4
+pystoi==0.4.1
+scipy==1.16.3
+soundfile==0.13.1
