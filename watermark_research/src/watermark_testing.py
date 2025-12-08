@@ -262,7 +262,24 @@ class SemanticPCAWM:
         # PCA Alignment
         cb_centered = self.codebook - self.codebook.mean(dim=0, keepdim=True)
         _, _, V = torch.linalg.svd(cb_centered)
-        self.manifold_vector = V[0].unsqueeze(1) 
+        self.manifold_vector = V[0].unsqueeze(1)
+
+        # --- Visualization of PCA manifold ---
+        try:
+            import matplotlib.pyplot as plt
+            cb_np = self.codebook.cpu().numpy()
+            cb_centered = cb_np - cb_np.mean(axis=0, keepdims=True)
+            pca_proj = np.dot(cb_centered, V.cpu().numpy().T[:, :2])
+            plt.figure(figsize=(6, 6))
+            plt.scatter(pca_proj[:, 0], pca_proj[:, 1], s=10, alpha=0.6, label="Codebook Vectors")
+            plt.arrow(0, 0, V[0, 0].item(), V[0, 1].item(), color="red", width=0.01, label="Manifold Axis (1st PC)")
+            plt.title("PCA Manifold Visualization (SemanticPCAWM)")
+            plt.legend()
+            os.makedirs("../results/manifold_plots", exist_ok=True)
+            plt.savefig("../results/manifold_plots/semantic_pca_manifold.png")
+            plt.close()
+        except Exception as e:
+            print(f"[Warning] Could not draw PCA manifold: {e}")
 
     def get_projected_z(self, audio):
         z = self.model.encoder(audio)[0]
@@ -329,7 +346,8 @@ class SemanticPCAWM:
             projections = torch.matmul(z.permute(0, 2, 1), self.manifold_vector).squeeze()
             
             raw_score = projections.mean().item()
-            return 1.0 if raw_score > 0.5 else 0.0
+            # return 1.0 if raw_score > 0.5 else 0.0
+            return raw_score
 
 class SemanticClusterWM:
     def __init__(self, device='cuda'):
@@ -412,6 +430,26 @@ class SemanticClusterWM:
         vector = centroids[1] - centroids[0]
         # Normalize to unit length
         vector = vector / (torch.norm(vector) + 1e-8)
+        # --- Visualization of the manifold ---
+        try:
+            import matplotlib.pyplot as plt
+            from sklearn.decomposition import PCA
+            cb_np = codebook.cpu().numpy()
+            pca = PCA(n_components=2)
+            cb_2d = pca.fit_transform(cb_np)
+            plt.figure(figsize=(6, 6))
+            plt.scatter(cb_2d[:, 0], cb_2d[:, 1], s=10, alpha=0.6, label="Codebook Vectors")
+            c0, c1 = centroids.cpu().numpy()
+            c0_2d, c1_2d = pca.transform([c0, c1])
+            plt.scatter([c0_2d[0], c1_2d[0]], [c0_2d[1], c1_2d[1]], color="red", label="Centroids")
+            plt.plot([c0_2d[0], c1_2d[0]], [c0_2d[1], c1_2d[1]], color="black", linestyle="--", label="Manifold Axis")
+            plt.title("K-Means Manifold Visualization")
+            plt.legend()
+            os.makedirs("../results/manifold_plots", exist_ok=True)
+            plt.savefig("../results/manifold_plots/semantic_cluster_manifold.png")
+            plt.close()
+        except Exception as e:
+            print(f"[Warning] Could not draw manifold: {e}")
         return vector.unsqueeze(1) # (Dim, 1)
 
     def get_projected_z(self, audio):
@@ -502,8 +540,8 @@ class SemanticClusterWM:
             
             # Simple average score
             raw_score = projections.mean().item()
-            
-            return 1.0 if raw_score > 0.5 else 0.0
+            return raw_score
+            # return 1.0 if raw_score > 0.5 else 0.0
 
 class SemanticWM:
     def __init__(self, device='cuda'):
@@ -634,7 +672,8 @@ class SemanticWM:
             projections = torch.matmul(z.permute(0, 2, 1), self.manifold_vector).squeeze()
             
             raw_score = projections.mean().item()
-            return 1.0 if raw_score > 0.5 else 0.0
+            return raw_score
+            # return 1.0 if raw_score > 0.5 else 0.0
 
 # --- 3. Main Benchmark Loop ---
 
@@ -710,6 +749,24 @@ def save_artifacts(output_dir, filename, method_name, orig_wav, wm_wav, attk_wav
     plt.close(fig)
 
 # --- UPDATED Benchmark Loop ---
+def find_optimal_threshold(scores, labels, num_points=100):
+    """
+    Finds the threshold that maximizes classification accuracy.
+    scores: list of float detection scores
+    labels: list of int (1 for PASS, 0 for FAIL ground truth)
+    """
+    if len(scores) == 0:
+        return 0.5, 0.0
+    thresholds = np.linspace(min(scores), max(scores), num_points)
+    best_acc, best_t = 0.0, 0.5
+    for t in thresholds:
+        preds = [1 if s > t else 0 for s in scores]
+        acc = np.mean([p == l for p, l in zip(preds, labels)])
+        if acc > best_acc:
+            best_acc, best_t = acc, t
+    return best_t, best_acc
+
+
 def run_qwen_benchmark(audio_dir: str, output_dir: str, watermarks: list[str], filecount: int):
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     print(f"--- Running Qwen-Omni (SNAC) Benchmark & Artifact Generation ---")
@@ -804,6 +861,16 @@ def run_qwen_benchmark(audio_dir: str, output_dir: str, watermarks: list[str], f
     else:
         print("No results.")
 
+    # --- Compute optimal thresholds per method ---
+    if not df.empty:
+        print("\nOptimal Thresholds per Method:")
+        for method in df["Method"].unique():
+            method_df = df[df["Method"] == method]
+            scores = method_df["Score"].tolist()
+            labels = [1 if s > 0.5 else 0 for s in scores]  # assume 0.5 as initial truth
+            best_t, best_acc = find_optimal_threshold(scores, labels)
+            print(f"{method}: best threshold={best_t:.3f}, accuracy={best_acc:.3f}")
+
 # --- 4. Checker for Detection Without LALM Manipulation ---
 def run_detector_checker(audio_dir: str, watermarks: list[str], filecount: int):
     """
@@ -884,16 +951,68 @@ def run_detector_checker(audio_dir: str, watermarks: list[str], filecount: int):
 if __name__ == "__main__":
     import argparse
 
+    datasets = ["AIR", "Bach10", "Clotho", "DAPS", "DEMAND", "Freischuetz", "GuitarSet", "jaCappella", "LibriSpeech", "MAESTRO", "PCD"]
     parser = argparse.ArgumentParser(description="Watermark Testing Framework")
-    parser.add_argument("--audio_dir", type=str, default="../../dataset/LibriSpeech", help="Directory containing audio files")
-    parser.add_argument("--output_dir", type=str, default="../results/LibriSpeech", help="Directory to save results")
-    parser.add_argument("--watermarks", nargs="+", default=["SemanticCluster", "SemanticRandom"], help="List of watermark methods to test")
+    parser.add_argument("--datasets", nargs="+", choices=datasets, default=["LibriSpeech"], help="List of datasets to use")
+    parser.add_argument("--watermarks", nargs="+", default=["SemanticCluster", "SemanticRandom", "SemanticPCA"], help="List of watermark methods to test")
     parser.add_argument("--filecount", type=int, default=10, help="Number of files to process")
-    parser.add_argument("--mode", type=str, choices=["benchmark", "detector"], default="benchmark", help="Run mode: benchmark or detector")
+    parser.add_argument("--mode", type=str, choices=["benchmark", "detector", "both"], default="both", help="Run mode: benchmark, detector, or both")
 
     args = parser.parse_args()
 
-    if args.mode == "benchmark":
-        run_qwen_benchmark(args.audio_dir, args.output_dir, args.watermarks, args.filecount)
-    else:
-        run_detector_checker(args.audio_dir, args.watermarks, args.filecount)
+    base_data_dir = "../../dataset"
+    base_output_dir = "../results"
+
+    global_results = []
+    for dataset in args.datasets:
+        try:
+            audio_dir = os.path.join(base_data_dir, dataset)
+            output_dir = os.path.join(base_output_dir, dataset)
+            print(f"\n=== Running for dataset: {dataset} ===")
+            if args.mode == "benchmark":
+                run_qwen_benchmark(audio_dir, output_dir, args.watermarks, args.filecount)
+            elif args.mode == "detector":
+                run_detector_checker(audio_dir, args.watermarks, args.filecount)
+            elif args.mode == "both":
+                print("\n=== Running DETECTABILITY + SURVIVABILITY combined mode ===")
+                run_detector_checker(audio_dir, args.watermarks, args.filecount)
+                run_qwen_benchmark(audio_dir, output_dir, args.watermarks, args.filecount)
+                print("\n=== Computing optimal threshold using raw scores across pre/post watermark and post-attack ===")
+                det_csv = os.path.join(audio_dir, "detector_checker_results.csv")
+                surv_csv = os.path.join(output_dir, "qwen_benchmark_results.csv")
+                if os.path.exists(det_csv) and os.path.exists(surv_csv):
+                    det_df = pd.read_csv(det_csv)
+                    surv_df = pd.read_csv(surv_csv)
+                    results = []
+                    for method in surv_df["Method"].unique():
+                        pre_scores = [0.0] * len(surv_df[surv_df["Method"] == method])
+                        pre_labels = [0] * len(pre_scores)
+                        det_scores = det_df[det_df["Method"] == method]["Score"].tolist()
+                        det_labels = [1] * len(det_scores)
+                        surv_scores = surv_df[surv_df["Method"] == method]["Score"].tolist()
+                        surv_labels = [1] * len(surv_scores)
+                        scores = pre_scores + det_scores + surv_scores
+                        labels = pre_labels + det_labels + surv_labels
+                        best_t, best_acc = find_optimal_threshold(scores, labels)
+                        print(f"{method}: optimal threshold={best_t:.3f}, combined accuracy={best_acc:.3f}")
+                        results.append({"Dataset": dataset, "Method": method, "OptimalThreshold": best_t, "Accuracy": best_acc})
+                    detect_csv = os.path.join(output_dir, "combined_detectability_results.csv")
+                    pd.DataFrame(results).to_csv(detect_csv, index=False)
+                    print(f"Combined detectability results written to {detect_csv}")
+                    global_results.extend(results)
+                else:
+                    print(f"Missing CSVs for combined threshold computation in {dataset}.")
+        except Exception as e:
+            print(f"[Warning] Skipping dataset {dataset} due to error: {e}")
+            continue
+
+    if args.mode == "both" and global_results:
+        df_global = pd.DataFrame(global_results)
+        print("\n=== Summary of Optimal Thresholds per Dataset ===")
+        dataset_summary = df_global.groupby("Dataset")[["OptimalThreshold", "Accuracy"]].mean()
+        print(dataset_summary)
+        global_best_t = df_global["OptimalThreshold"].mean()
+        print(f"\nGlobal Best Threshold (mean across datasets): {global_best_t:.3f}")
+        summary_csv = os.path.join(base_output_dir, "global_threshold_summary.csv")
+        df_global.to_csv(summary_csv, index=False)
+        print(f"Global threshold summary written to {summary_csv}")
