@@ -1,6 +1,9 @@
 import os
 import glob
 import torch
+torch.backends.cudnn.enabled = False
+torch.backends.cudnn.benchmark = False
+torch.backends.cudnn.deterministic = True
 import torchaudio
 import numpy as np
 import pandas as pd
@@ -14,6 +17,16 @@ import torch.nn as nn
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger()
+
+def ensure_mono(wav: torch.Tensor) -> torch.Tensor:
+    """
+    將 (channels, time) 或 (batch, channels, time) 統一變成單聲道。
+    """
+    if wav.dim() == 2 and wav.size(0) > 1:          # (C, T)
+        wav = wav.mean(dim=0, keepdim=True)         # -> (1, T)
+    elif wav.dim() == 3 and wav.size(1) > 1:        # (B, C, T)
+        wav = wav.mean(dim=1, keepdim=True)         # -> (B, 1, T)
+    return wav
 
 # --- 1. The Attacker: SNAC (Qwen-Omni Tokenizer) ---
 from snac import SNAC
@@ -129,17 +142,26 @@ class SilentCipherWM(Watermarker):
         super().__init__(device)
         self.name = "SilentCipher"
         import silentcipher
-        
-        # Load model (SilentCipher usually defaults to 44.1k)
-        self.model = silentcipher.get_model(
-            ckpt_path='/mnt/data/home/lily/spml-final/silentcipher-release/Models/44_1_khz/73999_iteration',
-            config_path='/mnt/data/home/lily/spml-final/silentcipher-release/Models/44_1_khz/73999_iteration/hparams.yaml',
-            model_type='44.1k', 
-            device=device
-        )
+
         self.wm_sr = 44100 
+        self.model = None  # 先預設 None
+        
+        try:
+            # Load model (SilentCipher usually defaults to 44.1k)
+            self.model = silentcipher.get_model(
+                ckpt_path='/project/aimm/aki930/raw_bench/wm_ckpts/silent_cipher/44_1_khz/73999_iteration',
+                config_path='/project/aimm/aki930/raw_bench/wm_ckpts/silent_cipher/44_1_khz/73999_iteration/hparams.yaml',
+                model_type='44.1k', 
+                device=device
+            )
+            print("[SilentCipher] model loaded.")
+        except Exception as e:
+            print(f"[SilentCipher] load failed, will be skipped: {e}")
+            self.model = None
 
     def embed(self, audio: torch.Tensor, sr: int):
+        if self.model is None:
+            return audio, None
         # 1. Resample to 44.1k
         wav_input = torchaudio.functional.resample(audio, sr, self.wm_sr)
         
@@ -172,6 +194,8 @@ class SilentCipherWM(Watermarker):
             return audio, None
 
     def detect(self, audio: torch.Tensor, sr: int, payload) -> float:
+        if self.model is None or payload is None:
+            return 0.0
         # 1. Resample
         wav_input = torchaudio.functional.resample(audio, sr, self.wm_sr)
         
@@ -716,6 +740,7 @@ def run_qwen_benchmark(audio_dir: str, output_dir: str, watermarks: list[str], f
         filename = os.path.basename(filepath)
         try:
             wav, sr = torchaudio.load(filepath)
+            wav = ensure_mono(wav) 
             if wav.shape[-1] > sr * 5: wav = wav[:, :sr*5]
         except: continue
 
@@ -807,6 +832,7 @@ def run_detector_checker(audio_dir: str, watermarks: list[str], filecount: int):
         filename = os.path.basename(filepath)
         try:
             wav, sr = torchaudio.load(filepath)
+            wav = ensure_mono(wav) 
             if wav.shape[-1] > sr * 5:
                 wav = wav[:, :sr * 5]
         except:

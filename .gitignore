@@ -1,0 +1,4 @@
+# --- local results & caches ---
+interpretability_research/results/
+watermark_research/results/
+**/__pycache__/
