@@ -292,7 +292,8 @@ class SemanticPCAWM:
         epsilon = 0.005 
         steps = 150
         lr = 0.005
-        target_score = 3
+        # target_score = 3
+        target_score = -1.5
         
         wav_input = torchaudio.functional.resample(audio, sr, self.wm_sr).to(self.device)
         if wav_input.dim() < 3: wav_input = wav_input.unsqueeze(0) if wav_input.dim()==2 else wav_input.unsqueeze(0).unsqueeze(0)
@@ -791,6 +792,7 @@ def run_qwen_benchmark(audio_dir: str, output_dir: str, watermarks: list[str], f
     files = glob.glob(os.path.join(audio_dir, "*.wav")) + glob.glob(os.path.join(audio_dir, "*.mp3"))
     results = []
 
+    filecount = min(filecount, len(files))
     print(f"Found {len(files)} files. Processing first {filecount}...")
 
     for filepath in tqdm(files[:filecount]):
@@ -893,6 +895,7 @@ def run_detector_checker(audio_dir: str, watermarks: list[str], filecount: int):
     files = glob.glob(os.path.join(audio_dir, "*.wav")) + glob.glob(os.path.join(audio_dir, "*.mp3"))
     results = []
 
+    filecount = min(filecount, len(files))
     print(f"Found {len(files)} files. Processing first {filecount}...")
 
     for filepath in tqdm(files[:filecount]):
@@ -953,15 +956,15 @@ if __name__ == "__main__":
 
     datasets = ["AIR", "Bach10", "Clotho", "DAPS", "DEMAND", "Freischuetz", "GuitarSet", "jaCappella", "LibriSpeech", "MAESTRO", "PCD"]
     parser = argparse.ArgumentParser(description="Watermark Testing Framework")
-    parser.add_argument("--datasets", nargs="+", choices=datasets, default=["LibriSpeech"], help="List of datasets to use")
+    parser.add_argument("--datasets", nargs="+", choices=datasets, default=datasets, help="List of datasets to use")
     parser.add_argument("--watermarks", nargs="+", default=["SemanticCluster", "SemanticRandom", "SemanticPCA"], help="List of watermark methods to test")
-    parser.add_argument("--filecount", type=int, default=10, help="Number of files to process")
+    parser.add_argument("--filecount", type=int, default=50, help="Number of files to process")
     parser.add_argument("--mode", type=str, choices=["benchmark", "detector", "both"], default="both", help="Run mode: benchmark, detector, or both")
 
     args = parser.parse_args()
 
     base_data_dir = "../../dataset"
-    base_output_dir = "../results"
+    base_output_dir = "../results_denoised"
 
     global_results = []
     for dataset in args.datasets:

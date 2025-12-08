@@ -1,4 +1,5 @@
 # --- local results & caches ---
-interpretability_research/results/
+interpretability_research/results*/
 watermark_research/results/
 **/__pycache__/
+dataset/*
